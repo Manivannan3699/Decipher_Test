@@ -49,14 +49,6 @@
       margin-bottom: 1rem;
     }
     .question-types label { white-space: nowrap; }
-    pre {
-      background-color: #f4f4f4;
-      padding: 1rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      white-space: pre-wrap;
-      min-height: 300px;
-    }
     .button-row {
       display: flex;
       gap: 1rem;
@@ -114,33 +106,13 @@
 
     <div class="right">
       <h2>Generated Decipher XML</h2>
-      <pre id="outputBox"></pre>
+      <textarea id="outputBox" style="min-height: 300px;"></textarea>
     </div>
   </div>
 
   <script>
     let fullXML = '';
     let autoLabelCount = 1;
-
-    document.addEventListener('keydown', function (e) {
-      const active = document.activeElement;
-      if (active.tagName === 'TEXTAREA' && e.ctrlKey) {
-        let tag = '';
-        if (e.key.toLowerCase() === 'b') tag = 'b';
-        else if (e.key.toLowerCase() === 'i') tag = 'i';
-        else if (e.key.toLowerCase() === 'u') tag = 'u';
-        else return;
-
-        e.preventDefault();
-        const start = active.selectionStart;
-        const end = active.selectionEnd;
-        const selected = active.value.substring(start, end);
-        const wrapped = `<${tag}>${selected}</${tag}>`;
-        active.value = active.value.substring(0, start) + wrapped + active.value.substring(end);
-        active.setSelectionRange(start + tag.length + 2, start + tag.length + 2 + selected.length);
-        generateXML();
-      }
-    });
 
     function autoLabel(lines, prefix) {
       let counter = 1;
@@ -230,7 +202,7 @@
     }
 
     function copyToClipboard() {
-      const text = document.getElementById('outputBox').textContent;
+      const text = document.getElementById('outputBox').value;
       navigator.clipboard.writeText(text).then(() => {
         alert("Copied to clipboard!");
       });
@@ -239,7 +211,7 @@
     function saveQuestion() {
       const questionXML = generateXML();
       fullXML += (fullXML ? '\n' : '') + questionXML;
-      document.getElementById('outputBox').textContent = fullXML;
+      document.getElementById('outputBox').value = fullXML;
       document.getElementById('questionLabel').value = '';
       document.getElementById('mainQuestion').value = '';
       document.getElementById('rowsInput').value = '';
@@ -251,8 +223,30 @@
 
     document.querySelectorAll('textarea, input[name="qtype"], #questionLabel').forEach(el => {
       el.addEventListener('input', () => {
-        document.getElementById('outputBox').textContent = fullXML + (fullXML ? '\n' : '') + generateXML();
+        document.getElementById('outputBox').value = fullXML + (fullXML ? '\n' : '') + generateXML();
       });
+    });
+
+    // Add keyboard shortcuts (Ctrl+B, Ctrl+I, Ctrl+U) for all textarea/input
+    document.addEventListener('keydown', function (e) {
+      if (e.ctrlKey && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
+        const tag = e.key.toLowerCase();
+        const active = document.activeElement;
+
+        if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) {
+          e.preventDefault();
+          const start = active.selectionStart;
+          const end = active.selectionEnd;
+          const selected = active.value.substring(start, end);
+          const wrapped = `<${tag}>${selected}</${tag}>`;
+          active.value = active.value.substring(0, start) + wrapped + active.value.substring(end);
+          active.setSelectionRange(start + wrapped.length, start + wrapped.length);
+
+          if (active.id !== 'outputBox') {
+            document.getElementById('outputBox').value = fullXML + (fullXML ? '\n' : '') + generateXML();
+          }
+        }
+      }
     });
   </script>
 </body>
