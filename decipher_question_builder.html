@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decipher XML Builder</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background-color: #2b2d42;
+      color: #fff;
+      padding: 1rem;
+      text-align: center;
+    }
+    .container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .left, .right {
+      width: 50%;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      height: 100px;
+      padding: 0.5rem;
+      margin-bottom: 1rem;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    input[type="text"] {
+      height: auto;
+    }
+    .question-types {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .question-types label { white-space: nowrap; }
+    pre {
+      background-color: #f4f4f4;
+      padding: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      min-height: 300px;
+    }
+    .button-row {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      background-color: #2b2d42;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn:hover { background-color: #1d1e2b; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Decipher XML Builder</h1>
+    <small>Shortcuts: Ctrl+B = <b>bold</b>, Ctrl+I = <i>italic</i>, Ctrl+U = <u>underline</u></small>
+  </header>
+  <div class="container">
+    <div class="left">
+      <h2>Build Question</h2>
+
+      <label>Question Label (no spaces)</label>
+      <input type="text" id="questionLabel" placeholder="e.g., Qn_Intro">
+
+      <label>Main Question Text</label>
+      <textarea id="mainQuestion"></textarea>
+
+      <div class="question-types">
+        <label><input type="radio" name="qtype" value="radio" checked> Radio</label>
+        <label><input type="radio" name="qtype" value="checkbox"> Checkbox</label>
+        <label><input type="radio" name="qtype" value="select"> Select</label>
+        <label><input type="radio" name="qtype" value="text"> Text</label>
+        <label><input type="radio" name="qtype" value="textarea"> Textarea</label>
+        <label><input type="radio" name="qtype" value="number"> Number</label>
+      </div>
+
+      <label>Rows</label>
+      <textarea id="rowsInput"></textarea>
+
+      <label>Columns</label>
+      <textarea id="colsInput"></textarea>
+
+      <label>Choices</label>
+      <textarea id="choicesInput"></textarea>
+
+      <div class="button-row">
+        <button class="btn" onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button class="btn" onclick="saveQuestion()">Save Question & New</button>
+      </div>
+    </div>
+
+    <div class="right">
+      <h2>Generated Decipher XML</h2>
+      <pre id="outputBox"></pre>
+    </div>
+  </div>
+
+  <script>
+    let fullXML = '';
+    let autoLabelCount = 1;
+
+    document.addEventListener('keydown', function (e) {
+      const active = document.activeElement;
+      if (active.tagName === 'TEXTAREA' && e.ctrlKey) {
+        let tag = '';
+        if (e.key.toLowerCase() === 'b') tag = 'b';
+        else if (e.key.toLowerCase() === 'i') tag = 'i';
+        else if (e.key.toLowerCase() === 'u') tag = 'u';
+        else return;
+
+        e.preventDefault();
+        const start = active.selectionStart;
+        const end = active.selectionEnd;
+        const selected = active.value.substring(start, end);
+        const wrapped = `<${tag}>${selected}</${tag}>`;
+        active.value = active.value.substring(0, start) + wrapped + active.value.substring(end);
+        active.setSelectionRange(start + tag.length + 2, start + tag.length + 2 + selected.length);
+        generateXML();
+      }
+    });
+
+    function autoLabel(lines, prefix) {
+      let counter = 1;
+      return lines.map(line => {
+        const match = line.match(/^(\w+)\s+(.+)/);
+        if (match) {
+          return { label: match[1], text: match[2].trim() };
+        } else {
+          return { label: `${counter++}`, text: line.trim() };
+        }
+      });
+    }
+
+    function parseRows(lines, type) {
+      return autoLabel(lines, 'r').map(({ label, text }) => {
+        const finalLabel = label.startsWith('r') ? label : `r${label}`;
+        const lowerText = text.toLowerCase();
+        if ((label === '99' || finalLabel === 'r99') && /other/.test(lowerText)) {
+          return `<row label="${finalLabel}" open="1" openSize="25" randomize="0">${text}</row>`;
+        }
+        if (type === 'checkbox' && /none of the above/i.test(lowerText)) {
+          return `<row label="${finalLabel}" exclusive="1">${text}</row>`;
+        }
+        return `<row label="${finalLabel}">${text}</row>`;
+      }).join('\n');
+    }
+
+    function parseCols(lines) {
+      return autoLabel(lines, 'c').map(({ label, text }) => {
+        const finalLabel = label.startsWith('c') ? label : `c${label}`;
+        return `<col label="${finalLabel}">${text}</col>`;
+      }).join('\n');
+    }
+
+    function parseChoices(lines) {
+      return autoLabel(lines, 'ch').map(({ label, text }) => {
+        const finalLabel = label.startsWith('ch') ? label : `ch${label}`;
+        return `<choice label="${finalLabel}">${text}</choice>`;
+      }).join('\n');
+    }
+
+    function getQuestionAttributes(type, label, hasCols) {
+      if (type === 'radio' || type === 'checkbox') {
+        const common = `label="${label}"`;
+        const extra = hasCols ? '' : (type === 'checkbox' ? ' atleast="1"' : '') + ' atm1d:showInput="0" uses="atm1d.10"';
+        return `<${type}\n  ${common}${extra ? '\n  ' + extra : ''}>`;
+      }
+      if (type === 'text') return `<text\n  label="${label}"\n  size="40"\n  optional="0">`;
+      if (type === 'number') return `<number\n  label="${label}"\n  size="3"\n  optional="0">`;
+      if (type === 'textarea') return `<textarea\n  label="${label}"\n  optional="0">`;
+      if (type === 'select') return `<select\n  label="${label}" randomize="0">`;
+      return `<${type}\n  label="${label}">`;
+    }
+
+    function getComment(type) {
+      switch (type) {
+        case 'radio': return '[res INS_S]';
+        case 'checkbox': return '[res INS_M]';
+        case 'text': return 'Please be as specific as possible';
+        case 'number': return '[res INS_NL]';
+        case 'textarea': return 'Please be as specific as possible';
+        default: return '[res INS_S]';
+      }
+    }
+
+    function generateXML() {
+      let rawLabel = document.getElementById('questionLabel').value.trim();
+      if (!rawLabel) rawLabel = `Q${autoLabelCount}`;
+      const label = rawLabel.replace(/\s+/g, '_');
+      const mainText = document.getElementById('mainQuestion').value.trim();
+      const type = document.querySelector('input[name="qtype"]:checked').value;
+      const rowsInput = document.getElementById('rowsInput').value.trim().split('\n').filter(Boolean);
+      const colsInput = document.getElementById('colsInput').value.trim().split('\n').filter(Boolean);
+      const choicesInput = document.getElementById('choicesInput').value.trim().split('\n').filter(Boolean);
+
+      const hasCols = colsInput.length > 0;
+
+      let xml = `${getQuestionAttributes(type, label, hasCols)}\n  <title>${mainText}</title>`;
+      xml += `\n  <comment>${getComment(type)}</comment>`;
+
+      if (rowsInput.length) xml += `\n  ${parseRows(rowsInput, type)}`;
+      if (hasCols) xml += `\n  ${parseCols(colsInput)}`;
+      if (choicesInput.length) xml += `\n  ${parseChoices(choicesInput)}`;
+
+      xml += `\n</${type}>\n<suspend/>`;
+      return xml;
+    }
+
+    function copyToClipboard() {
+      const text = document.getElementById('outputBox').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        alert("Copied to clipboard!");
+      });
+    }
+
+    function saveQuestion() {
+      const questionXML = generateXML();
+      fullXML += (fullXML ? '\n' : '') + questionXML;
+      document.getElementById('outputBox').textContent = fullXML;
+      document.getElementById('questionLabel').value = '';
+      document.getElementById('mainQuestion').value = '';
+      document.getElementById('rowsInput').value = '';
+      document.getElementById('colsInput').value = '';
+      document.getElementById('choicesInput').value = '';
+      document.querySelector('input[name="qtype"][value="radio"]').checked = true;
+      autoLabelCount++;
+    }
+
+    document.querySelectorAll('textarea, input[name="qtype"], #questionLabel').forEach(el => {
+      el.addEventListener('input', () => {
+        document.getElementById('outputBox').textContent = fullXML + (fullXML ? '\n' : '') + generateXML();
+      });
+    });
+  </script>
+</body>
+</html>
